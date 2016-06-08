@@ -12,21 +12,23 @@ import (
 var sepStr = fmt.Sprintf("%v", string(os.PathSeparator))
 
 type GlobPath struct {
-	path    string
-	hasMeta bool
-	g       glob.Glob
-	root    string
+	path             string
+	hasMeta          bool
+	hasSuperAsterisk bool
+	g                glob.Glob
+	root             string
 }
 
 func Compile(path string) (*GlobPath, error) {
 	out := GlobPath{
-		hasMeta: hasMeta(path),
-		path:    path,
+		hasMeta:          hasMeta(path),
+		hasSuperAsterisk: hasSuperAsterisk(path),
+		path:             path,
 	}
 
 	// if there are no glob meta characters in the path, don't bother compiling
 	// a glob object or finding the root directory. (see short-circuit in Match)
-	if !out.hasMeta {
+	if !out.hasMeta || !out.hasSuperAsterisk {
 		return &out, nil
 	}
 
@@ -45,6 +47,20 @@ func (g *GlobPath) Match() map[string]os.FileInfo {
 		info, err := os.Stat(g.path)
 		if !os.IsNotExist(err) {
 			out[g.path] = info
+		}
+		return out
+	}
+	if !g.hasSuperAsterisk {
+		out := make(map[string]os.FileInfo)
+		files, err := filepath.Glob(g.path)
+		if err != nil {
+			return out
+		}
+		for _, file := range files {
+			info, err := os.Stat(file)
+			if !os.IsNotExist(err) {
+				out[file] = info
+			}
 		}
 		return out
 	}
@@ -95,4 +111,8 @@ func findRootDir(path string) string {
 // hasMeta reports whether path contains any magic glob characters.
 func hasMeta(path string) bool {
 	return strings.IndexAny(path, "*?[") >= 0
+}
+
+func hasSuperAsterisk(path string) bool {
+	return strings.Index(path, "**") >= 0
 }
