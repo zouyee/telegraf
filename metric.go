@@ -26,6 +26,7 @@ type Metric interface {
 	// whose string representations are no longer than maxSize.
 	// Metrics with a single field may exceed the requested size.
 	Split(maxSize int) []Metric
+	CopyTo(dst []byte)
 
 	// Tag functions
 	HasTag(key string) bool

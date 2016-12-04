@@ -1,7 +1,7 @@
 package influxdb
 
 import (
-	"errors"
+	//"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/internal"
+	"github.com/influxdata/telegraf/metric"
 	"github.com/influxdata/telegraf/plugins/outputs"
 
 	"github.com/influxdata/influxdb/client/v2"
@@ -41,7 +42,8 @@ type InfluxDB struct {
 	// Precision is only here for legacy support. It will be ignored.
 	Precision string
 
-	conns []client.Client
+	conns  []client.Client
+	client Client
 }
 
 var sampleConfig = `
@@ -77,6 +79,17 @@ var sampleConfig = `
 `
 
 func (i *InfluxDB) Connect() error {
+	cfg := ClientConfig{
+		BaseURL: "http://localhost:8086",
+		Params: WriteParams{
+			Database:        i.Database,
+			RetentionPolicy: i.RetentionPolicy,
+			Consistency:     i.WriteConsistency,
+		},
+		Timeout: i.Timeout.Duration,
+	}
+	i.client = NewClient(cfg)
+
 	var urls []string
 	for _, u := range i.URLs {
 		urls = append(urls, u)
@@ -175,47 +188,62 @@ func (i *InfluxDB) Description() string {
 // Choose a random server in the cluster to write to until a successful write
 // occurs, logging each unsuccessful. If all servers fail, return error.
 func (i *InfluxDB) Write(metrics []telegraf.Metric) error {
-	if len(i.conns) == 0 {
-		err := i.Connect()
-		if err != nil {
-			return err
-		}
+	bufsize := 0
+	for _, m := range metrics {
+		bufsize += m.Len()
 	}
-	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
-		Database:         i.Database,
-		RetentionPolicy:  i.RetentionPolicy,
-		WriteConsistency: i.WriteConsistency,
-	})
-	if err != nil {
-		return err
-	}
+	r := metric.NewReader(metrics)
+	i.client.WriteStream(r, bufsize)
+	return nil
+	// buf := make([]byte, bufsize)
+	// j := 0
+	// for _, m := range metrics {
+	// 	j += copy(buf[j:], m.Serialize())
+	// }
 
-	for _, metric := range metrics {
-		bp.AddPoint(metric.Point())
-	}
+	// _, err := i.client.Write(buf)
+	// return err
+	// if len(i.conns) == 0 {
+	// 	err := i.Connect()
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
+	// bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+	// 	Database:         i.Database,
+	// 	RetentionPolicy:  i.RetentionPolicy,
+	// 	WriteConsistency: i.WriteConsistency,
+	// })
+	// if err != nil {
+	// 	return err
+	// }
 
-	// This will get set to nil if a successful write occurs
-	err = errors.New("Could not write to any InfluxDB server in cluster")
+	// for _, metric := range metrics {
+	// 	bp.AddPoint(metric.Point())
+	// }
 
-	p := rand.Perm(len(i.conns))
-	for _, n := range p {
-		if e := i.conns[n].Write(bp); e != nil {
-			// Log write failure
-			log.Printf("E! InfluxDB Output Error: %s", e)
-			// If the database was not found, try to recreate it
-			if strings.Contains(e.Error(), "database not found") {
-				if errc := createDatabase(i.conns[n], i.Database); errc != nil {
-					log.Printf("E! Error: Database %s not found and failed to recreate\n",
-						i.Database)
-				}
-			}
-		} else {
-			err = nil
-			break
-		}
-	}
+	// // This will get set to nil if a successful write occurs
+	// err = errors.New("Could not write to any InfluxDB server in cluster")
 
-	return err
+	// p := rand.Perm(len(i.conns))
+	// for _, n := range p {
+	// 	if e := i.conns[n].Write(bp); e != nil {
+	// 		// Log write failure
+	// 		log.Printf("E! InfluxDB Output Error: %s", e)
+	// 		// If the database was not found, try to recreate it
+	// 		if strings.Contains(e.Error(), "database not found") {
+	// 			if errc := createDatabase(i.conns[n], i.Database); errc != nil {
+	// 				log.Printf("E! Error: Database %s not found and failed to recreate\n",
+	// 					i.Database)
+	// 			}
+	// 		}
+	// 	} else {
+	// 		err = nil
+	// 		break
+	// 	}
+	// }
+
+	// return err
 }
 
 func init() {
