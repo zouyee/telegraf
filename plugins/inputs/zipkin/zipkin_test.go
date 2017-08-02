@@ -262,12 +262,6 @@ func TestZipkinPlugin(t *testing.T) {
 			}
 		})
 	}
-	mockAcc.ClearMetrics()
-	z.Stop()
-	// Make sure there is no erroneous error on shutdown
-	if len(mockAcc.Errors) != 0 {
-		t.Fatal("Expected no errors on shutdown")
-	}
 }
 
 func postThriftData(datafile string) error {
